@@ -3,9 +3,16 @@
 ## Four Different Implementations of Malloc/Free
 
 ### Malloc_1 - Malloc Level 1:
+Just expanding the program break (without any optimization).
+
+Functions:
 - void* smalloc(size_t size): Tries to allocate ‘size’ bytes
 
 ### Malloc_2 - Malloc Level 2:
+Saves Meta-Data for every allocation and store them in ordered linked list.
+Expanding the program break only if there are no allocations that were free'd before.
+
+Functions:
 - void* smalloc(size_t size): Searches for a free block with up to ‘size’ bytes 
         or allocates (sbrk()) one if none are found
 - void* scalloc(size_t num, size_t size): Searches for a free block of up to ‘num’ elements,
