@@ -29,7 +29,7 @@ Functions:
     git clone https://github.com/Almogbs/Custom-Malloc-Implementations.git
 
 ## Compile:
-    cd Custom-Malloc-Implementations
+    cd Custom-Malloc-Implementations/src
     ./build.sh <ARG>
     when:
         ARG = 1 - compile malloc_1.cpp
