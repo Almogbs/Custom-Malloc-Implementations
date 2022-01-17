@@ -3,7 +3,7 @@
 ## Four Different Implementations of Malloc/Free
 
 ### Malloc_1 - Malloc Level 1:
-Just expanding the program break (without any optimization).
+Just expanding the program break (without any optimizations).
 
 Functions:
 - void* smalloc(size_t size): Tries to allocate ‘size’ bytes
@@ -22,7 +22,12 @@ Functions:
         content of oldp into the new allocated space and frees the oldp
 - void sfree(void* p): Releases the usage of the block that starts with the pointer ‘p’
 ### Malloc_3 - Malloc Level 3:
+Like Malloc Level 2, but with more optimizations:
+Allocate Large block mmap and store then in mmap allocation linked list, 
+store the free'd allocation block in a bin (array slot) by the block's size (in order to save time), split existing free'd blocks if new new smaller allocation was requested, merge (or try to) adjacent free blocks into bigger one, if the last allocation was free'd then try to expand it in order to satisfy new bigger request.   
 ### Malloc_4 - Malloc Level 4:
+Like Malloc Level 3, but with Align memory address (To save CPU time and increase cache hits)
+
 ## See Code For More Details
 
 ## Download:
