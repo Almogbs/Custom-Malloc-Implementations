@@ -11,7 +11,6 @@
 // includes
 #include <unistd.h>
 #include <assert.h>
-#include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
 
@@ -34,7 +33,6 @@ size_t _size_meta_data();
 #define BIN_SIZE 128
 #define KB 1024
 #define MIN_KB_BLOCK 128 * KB
-
 
 
 
@@ -363,24 +361,6 @@ static void cut_block(MallocMetadata* block, size_t size, bool remove_bin = true
         block->next->prev = new_block;
     }
     block->next = new_block;
-    /*
-    // if block is first in its bin entry
-    if (block->bin_prev == nullptr)
-    {
-        free_block_bin[GET_BIN_ENTRY(block->size)] = block->bin_next;
-        if (block->bin_next)
-        {
-            block->bin_next->bin_prev = nullptr;
-        }
-    }
-    // not first in bin
-    else 
-    {
-        block->bin_prev->bin_next = block->bin_next;
-        block->bin_next->bin_prev = block->bin_prev;
-    }
-    */
-
     block->is_free  = false;
     block->size     = size;
     block->bin_next = nullptr;
@@ -457,7 +437,6 @@ void* smalloc(size_t size)
         return nullptr;
     }
     size = GET_SIZE_WITH_ALIGNMENT(size);
-    // assert(size > 0);
 
     // to big for sbrk, use mmap
     if (size >= MIN_KB_BLOCK)
@@ -470,8 +449,6 @@ void* smalloc(size_t size)
         MallocMetadata* mt = (MallocMetadata*)ret;
         INIT_METADATA(mt, size, false, nullptr, nullptr, nullptr, nullptr);
         insert_to_metadata_list(mt, &mmap_metadata_head);
-            printf("\n *** %lld *** \n", GET_PTR_FROM_METADATA(ret));
-
         return GET_PTR_FROM_METADATA(ret);
     }
     // try to use free'd block
@@ -479,8 +456,6 @@ void* smalloc(size_t size)
 
     if (freed != nullptr)
     {
-            printf("\n *** %lld *** \n", GET_PTR_FROM_METADATA(freed));
-
         return GET_PTR_FROM_METADATA(freed);
     }
 
@@ -489,8 +464,7 @@ void* smalloc(size_t size)
     MallocMetadata* last = get_last_metadata_block(metadata_head);
     if (last && last->is_free)
     {
-        // assert(size > last->size);
-        void* ret = sbrk(GET_SIZE_WITH_ALIGNMENT(size - last->size));
+        void* ret = sbrk(GET_SIZE_WITH_ALIGNMENT(size) - last->size);
         if ((intptr_t)ret == SBRK_FAIL)
         {
             return nullptr;
@@ -510,8 +484,6 @@ void* smalloc(size_t size)
         }
         last->is_free = false;
         last->size = size;
-            printf("\n *** %lld *** \n", GET_PTR_FROM_METADATA(last));
-
         return GET_PTR_FROM_METADATA(last);
     }
 
@@ -522,7 +494,7 @@ void* smalloc(size_t size)
     }
     INIT_METADATA((MallocMetadata*)ret, size, false, nullptr, nullptr, nullptr, nullptr);
     MallocMetadata* mt = (MallocMetadata*)ret;
-    printf("\n *** %lld *** \n", GET_PTR_FROM_METADATA(mt));
+
     insert_to_metadata_list(mt, &metadata_head);
     return GET_PTR_FROM_METADATA(mt);
 }
@@ -656,7 +628,7 @@ void* srealloc(void* oldp, size_t size)
     {
         return nullptr;
     }
-    // assert(size > 0);
+    size = GET_SIZE_WITH_ALIGNMENT(size);
 
     if (oldp == nullptr)
     {
@@ -664,7 +636,7 @@ void* srealloc(void* oldp, size_t size)
     }
 
     MallocMetadata* old_ptr = GET_METADATA_FROM_PTR(oldp);
-    size = GET_SIZE_WITH_ALIGNMENT(size);
+
     // ** oldp is mmap **
     if (old_ptr->size >= MIN_KB_BLOCK)
     {
@@ -683,6 +655,20 @@ void* srealloc(void* oldp, size_t size)
         if (IS_LARGE_ENOUGH(old_ptr->size, size))
         {
             cut_block(old_ptr, size);
+            if (old_ptr->next && old_ptr->next->is_free && old_ptr->next->next && old_ptr->next->next->is_free)
+            {
+                MallocMetadata* base = old_ptr->next;
+                MallocMetadata* base_next = old_ptr->next->next;
+                remove_from_bin(base);
+                remove_from_bin(base_next);
+                base->next = base_next->next;
+                if (base_next->next)
+                {
+                    base_next->next->prev = base;
+                }
+                base->size += sizeof(malloc_metadata_t) + base_next->size;
+                insert_block_to_bin(base);
+            }
         }
         return oldp;
     }
@@ -704,8 +690,22 @@ void* srealloc(void* oldp, size_t size)
         if (IS_LARGE_ENOUGH(ret->size, size))
         {
             cut_block(ret, size, false);
+            //merge old_ptr_next with old_ptr_next_next
+            if (ret->next && ret->next->is_free && ret->next->next && ret->next->next->is_free)
+            {
+                MallocMetadata* base = ret->next;
+                MallocMetadata* base_next = ret->next->next;
+                remove_from_bin(base);
+                remove_from_bin(base_next);
+                base->next = base_next->next;
+                if (base_next->next)
+                {
+                    base_next->next->prev = base;
+                }
+                base->size += sizeof(malloc_metadata_t) + base_next->size;
+                insert_block_to_bin(base);
+            }
         }
-            printf("\n *** %lld *** \n", GET_PTR_FROM_METADATA(ret));
 
         return GET_PTR_FROM_METADATA(ret);
     }
@@ -726,9 +726,21 @@ void* srealloc(void* oldp, size_t size)
         if (IS_LARGE_ENOUGH(old_ptr->size, size))
         {
             cut_block(old_ptr, size, false);
+            if (old_ptr->next && old_ptr->next->is_free && old_ptr->next->next && old_ptr->next->next->is_free)
+            {
+                MallocMetadata* base = old_ptr->next;
+                MallocMetadata* base_next = old_ptr->next->next;
+                remove_from_bin(base);
+                remove_from_bin(base_next);
+                base->next = base_next->next;
+                if (base_next->next)
+                {
+                    base_next->next->prev = base;
+                }
+                base->size += sizeof(malloc_metadata_t) + base_next->size;
+                insert_block_to_bin(base);
+            }
         }
-            printf("\n *** %lld *** \n", GET_PTR_FROM_METADATA(old_ptr));
-
         return GET_PTR_FROM_METADATA(old_ptr);
     }
 
@@ -752,29 +764,63 @@ void* srealloc(void* oldp, size_t size)
         if (IS_LARGE_ENOUGH(prev->size, size))
         {
             cut_block(prev, size, false);
+            if (prev->next && prev->next->is_free && prev->next->next && prev->next->next->is_free)
+            {
+                MallocMetadata* base = prev->next;
+                MallocMetadata* base_next = prev->next->next;
+                remove_from_bin(base);
+                remove_from_bin(base_next);
+                base->next = base_next->next;
+                if (base_next->next)
+                {
+                    base_next->next->prev = base;
+                }
+                base->size += sizeof(malloc_metadata_t) + base_next->size;
+                insert_block_to_bin(base);
+            }
         }
-            printf("\n *** %lld *** \n", GET_PTR_FROM_METADATA(prev));
-
         return GET_PTR_FROM_METADATA(prev);
     }
 
     // Try to expand the last block (if free)
     else if (old_ptr->next == nullptr)
     {
+        // take the free space before also
+        if (old_ptr->prev && old_ptr->prev->is_free)
+        {
+            MallocMetadata* ret = old_ptr->prev;
+            remove_from_bin(ret);
+            ret->is_free = false;
+            ret->next = old_ptr->next;
+            if (old_ptr->next)
+            {
+                old_ptr->next->prev = ret;
+            }
+            ret->size += old_ptr->size + sizeof(malloc_metadata_t);
+            void* mem = sbrk(size - ret->size);
+            if ((intptr_t)mem == SBRK_FAIL)
+            {
+                return nullptr;
+            }
+            ret->size = size;
+            memmove(GET_PTR_FROM_METADATA(ret), oldp, old_ptr->size);
+            return GET_PTR_FROM_METADATA(ret);
+        }
+        
+        // default case
         void* ret = sbrk(size - old_ptr->size);
         if ((intptr_t)ret == SBRK_FAIL)
         {
             return nullptr;
         }
         old_ptr->size = size;
-            printf("\n *** %lld *** \n", oldp);
-
         return oldp;
     }
 
     // Allocate a new block with sbrk()
     else
     {
+
         void* ret = smalloc(size);
         memmove(ret, oldp, MMIN(size, old_ptr->size));
         sfree(oldp);

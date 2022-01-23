@@ -359,24 +359,6 @@ static void cut_block(MallocMetadata* block, size_t size, bool remove_bin = true
         block->next->prev = new_block;
     }
     block->next = new_block;
-    /*
-    // if block is first in its bin entry
-    if (block->bin_prev == nullptr)
-    {
-        free_block_bin[GET_BIN_ENTRY(block->size)] = block->bin_next;
-        if (block->bin_next)
-        {
-            block->bin_next->bin_prev = nullptr;
-        }
-    }
-    // not first in bin
-    else 
-    {
-        block->bin_prev->bin_next = block->bin_next;
-        block->bin_next->bin_prev = block->bin_prev;
-    }
-    */
-
     block->is_free  = false;
     block->size     = size;
     block->bin_next = nullptr;
@@ -672,6 +654,20 @@ void* srealloc(void* oldp, size_t size)
         if (IS_LARGE_ENOUGH(old_ptr->size, size))
         {
             cut_block(old_ptr, size);
+            if (old_ptr->next && old_ptr->next->is_free && old_ptr->next->next && old_ptr->next->next->is_free)
+            {
+                MallocMetadata* base = old_ptr->next;
+                MallocMetadata* base_next = old_ptr->next->next;
+                remove_from_bin(base);
+                remove_from_bin(base_next);
+                base->next = base_next->next;
+                if (base_next->next)
+                {
+                    base_next->next->prev = base;
+                }
+                base->size += sizeof(malloc_metadata_t) + base_next->size;
+                insert_block_to_bin(base);
+            }
         }
         return oldp;
     }
@@ -693,7 +689,23 @@ void* srealloc(void* oldp, size_t size)
         if (IS_LARGE_ENOUGH(ret->size, size))
         {
             cut_block(ret, size, false);
+            //merge old_ptr_next with old_ptr_next_next
+            if (ret->next && ret->next->is_free && ret->next->next && ret->next->next->is_free)
+            {
+                MallocMetadata* base = ret->next;
+                MallocMetadata* base_next = ret->next->next;
+                remove_from_bin(base);
+                remove_from_bin(base_next);
+                base->next = base_next->next;
+                if (base_next->next)
+                {
+                    base_next->next->prev = base;
+                }
+                base->size += sizeof(malloc_metadata_t) + base_next->size;
+                insert_block_to_bin(base);
+            }
         }
+
         return GET_PTR_FROM_METADATA(ret);
     }
 
@@ -713,6 +725,20 @@ void* srealloc(void* oldp, size_t size)
         if (IS_LARGE_ENOUGH(old_ptr->size, size))
         {
             cut_block(old_ptr, size, false);
+            if (old_ptr->next && old_ptr->next->is_free && old_ptr->next->next && old_ptr->next->next->is_free)
+            {
+                MallocMetadata* base = old_ptr->next;
+                MallocMetadata* base_next = old_ptr->next->next;
+                remove_from_bin(base);
+                remove_from_bin(base_next);
+                base->next = base_next->next;
+                if (base_next->next)
+                {
+                    base_next->next->prev = base;
+                }
+                base->size += sizeof(malloc_metadata_t) + base_next->size;
+                insert_block_to_bin(base);
+            }
         }
         return GET_PTR_FROM_METADATA(old_ptr);
     }
@@ -737,6 +763,20 @@ void* srealloc(void* oldp, size_t size)
         if (IS_LARGE_ENOUGH(prev->size, size))
         {
             cut_block(prev, size, false);
+            if (prev->next && prev->next->is_free && prev->next->next && prev->next->next->is_free)
+            {
+                MallocMetadata* base = prev->next;
+                MallocMetadata* base_next = prev->next->next;
+                remove_from_bin(base);
+                remove_from_bin(base_next);
+                base->next = base_next->next;
+                if (base_next->next)
+                {
+                    base_next->next->prev = base;
+                }
+                base->size += sizeof(malloc_metadata_t) + base_next->size;
+                insert_block_to_bin(base);
+            }
         }
         return GET_PTR_FROM_METADATA(prev);
     }
@@ -744,6 +784,29 @@ void* srealloc(void* oldp, size_t size)
     // Try to expand the last block (if free)
     else if (old_ptr->next == nullptr)
     {
+        // take the free space before also
+        if (old_ptr->prev && old_ptr->prev->is_free)
+        {
+            MallocMetadata* ret = old_ptr->prev;
+            remove_from_bin(ret);
+            ret->is_free = false;
+            ret->next = old_ptr->next;
+            if (old_ptr->next)
+            {
+                old_ptr->next->prev = ret;
+            }
+            ret->size += old_ptr->size + sizeof(malloc_metadata_t);
+            void* mem = sbrk(size - ret->size);
+            if ((intptr_t)mem == SBRK_FAIL)
+            {
+                return nullptr;
+            }
+            ret->size = size;
+            memmove(GET_PTR_FROM_METADATA(ret), oldp, old_ptr->size);
+            return GET_PTR_FROM_METADATA(ret);
+        }
+        
+        // default case
         void* ret = sbrk(size - old_ptr->size);
         if ((intptr_t)ret == SBRK_FAIL)
         {
@@ -756,6 +819,7 @@ void* srealloc(void* oldp, size_t size)
     // Allocate a new block with sbrk()
     else
     {
+
         void* ret = smalloc(size);
         memmove(ret, oldp, MMIN(size, old_ptr->size));
         sfree(oldp);
